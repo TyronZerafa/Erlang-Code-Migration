@@ -4,7 +4,7 @@
 %% This module constructs the function data value representations.
 %% ************************************************************
 -import(erlang,[fun_info/2]).
--import(lists,[flatten/1,map/2,nth/2]).
+-import(lists,[flatten/1,map/2,nth/2,append/1]).
 -import(evaluate,[build_eval_fun/4]).
 
 -export([
@@ -243,7 +243,7 @@ add_directories(code_analysis_server,[{directories,Dir}|T]) ->
 
 get_all_dependencies() ->
 	xref:start(code_analysis_server),
-	[Dir] = dict:fetch(directories,mcode:get_rules()),
+	Dir = append(dict:fetch(directories,mcode:get_rules())),
 	add_dir(code_analysis_server,Dir),
 	%% Retrieve local calls
 	{ok,Calls} = xref:q(code_analysis_server, "E"),

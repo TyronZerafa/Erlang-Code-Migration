@@ -34,7 +34,7 @@
 %------------------------------------------------------------
 init([]) -> 
 	process_flag(trap_exit, true),
-	Rules = pf_rules_parser:compile_rules_from_file("/home/tyron/Documents/remote-eval/include/policy_file.conf"),
+	Rules = pf_rules_parser:compile_rules_from_file("./policy_file.conf"),
 	{ok, #state{rules = Rules, running_tasks = dict:new()}}.
 	
 start_link() ->
@@ -124,7 +124,7 @@ handle_cast({c_result_update, JobId, Result}, State) ->
 	{noreply, State#state{running_tasks = NewState}};
 	
 handle_cast({reload_rules}, State) ->
-	Rules = pf_rules_parser:compile_rules_from_file("/home/tyron/Documents/remote-eval/include/policy_file.conf"),
+	Rules = pf_rules_parser:compile_rules_from_file("./policy_file.conf"),
 	{noreply, State#state{rules = Rules}};
 	
 handle_cast(Anything, State) ->
