@@ -1,20 +1,24 @@
 Erlang - Code Migration
 =====================
-An Erlang extension introducing portable functions which can be transferred between different nodes.
 
 ****
 Authors: Tyron Zerafa, Adrian Francalanza
 ****
 
-## Portable Functions ##
+Erlang's distribution mechanism offers functionality that facilitates the creation of processes over remote nodes 
+via the ```spawn``` BIF. The semantics of this remote process creation require the service node (upon which the new 
+process will be created) to have the necessary codebase, i.e., the set of modules and function deﬁnitions; 
+otherwise evaluation would terminate with an undefined function exception. Erlang provides functionality that loads 
+code onto remote nodes; however, as discussed in [Towards an Abstraction for Remote Evaluation 
+in Erlang] (http://staff.um.edu.mt/afra1/papers/ew2013.pdf) presented in Erlang Workshop 2013, this may be 
+infeasible or even undesirable giving rise to a number of problems ranging from codebase name clashes to unknown 
+dependencies at compile-time. This Erlang extension, discussed in [Code Management Automation for Erlang Remote Actors]
+(http://staff.um.edu.mt/afra1/papers/agere2013.pdf), takes care to load the least required code during a remote process
+creation in either an eager or lazy mode.
 
-Portable functions were first proposed in [EEP (Erlang Enhanced Proposal)](http://www.erlang.org/eeps/eep-0015.html) 
-as a restricted type of functions that include their own source code rather than the mere (symbolic) code references 
-attributed to local and external functions. 
+## Remote-Evaluation: Use Case ##
 
-Consider the following simple Erlang modules.
-
-### Use Case ###
+Consider the following simple Erlang modules located on node 'NodeL'.
 
 ```
 %% Module performing basic math operations 
@@ -34,6 +38,32 @@ fib(0) -> 0;
 fib(1) -> 1;
 fib(N) -> fib(N-1) + fib(N-2).
 ```
+
+Using this extension, 'NodeL' can create a remote process that computes the ```cpx_math:fac/1``` on 'NodeM' using 
+the following call: ```erlang:spawn(NodeM,cpx_math,fac,[6])```. This would first check whether the required code resides on 
+the remote node, remotely load any missing functions and initiates execution. The result of such operation may be 
+requested from 'NodeM' via a new call; ```erlang:get_result(Pid)``` where 'Pid' is the process identifier of the remotely 
+created process as returned by ```erlang:spawn/4```. 
+
+The same load/ remotely execute semantics may also be achieved for anonymous functions through the use of portable 
+functions (discussed later). Basically, a portable function is a funtion that holds its own implementation rather than a mere 
+symbolic reference to facilitate distribution of code between different Erlang nodes. For instance 
+```erlang:spawn(NodeM, pfun() -> fac(6) + fib(2) end)``` would load and execute the anonymous portable function 
+on ERTS called 'NodeM'.  
+
+Application developers may also decide whether to load portable functions eagerly or lazily. Under an eager loading 
+scheme, all required code gets transferred and loaded inside a remote node prior to evaluation initialization. 
+Under a lazy loading scheme, only the root function gets loaded initially and other functions gets transferred 
+when they are needed. This scheme ensures that only the least required code gets transferred between different nodes,
+saving bandwidth and storage overheads in the presence of branches. The loading scheme may be set inside a file 
+'policy_file.conf' located under the 'ebin' folder.
+
+## Portable Functions ##
+
+The introduced code migration mechanism used in remote process creation is based on portable functions. These 
+were first proposed in [EEP (Erlang Enhanced Proposal)](http://www.erlang.org/eeps/eep-0015.html) 
+as a restricted type of functions that include their own source code rather than the mere (symbolic) code references 
+attributed to local and external functions. 
 
 ### Creation ###
 A portable function can be easily created using a new ```pfun``` keyword, similar to the Erlang's native 'local' 
@@ -92,21 +122,16 @@ compiles and loads all its ASTs inside the ERTS and starts executing from the ro
 'module', 'name' and 'arity' tags. The 'module' name changes that can be seen in the portable functions' AST ensure
 that the original modules in which portable functions are constructed do not get replaced inside the Erlang code server.
 
-### Remote Evaluation ###
-Portable functions facilitate the distribution of code between different Erlang nodes. A portable function may be passed 
-as an argument to the Erlang spawn mechanism to initiate the execution of functions whose code may be missing on the 
-remote location. For instance ```erlang:spawn(NodeK,pfun(X) -> fac(X) + fib(X) end,[6])``` would execute the portable 
-function on ERTS called 'NodeK', even if this node misses the required modules. The result of such operation may be 
-requested from 'NodeK' via a new call ```erlang:get_result(Pid)``` where 'Pid' is the process identifier of the remotely 
-spaywned process as returned by ```erlang:spawn/3```.
-
-Application developers may also decide whether to load portable functions eagerly or lazily. Under an eager loading scheme,
-all ASTs gets transferred and loaded inside a remote node prior to evaluation initialization. Under a lazy loading scheme,
-only the root function gets loaded initially and other ASTs gets transferred when theneeded. This scheme ensures that only 
-the least required code gets transferred between different nodes saving bandwidth and storage overheads in the presence of
-branches. The loading scheme may be set inside a file 'policy_file.conf' located under the '/include' dir. 
-
 ## Installation ##
+The main objective of this work is to extend the Erlang langauge with code migration capabailities which are used in 
+the development of remote evaluation. We have decided to introduce new keywords and change the ```spawn``` semantics 
+rather than introducing a new library to ease adoption and use. This requires users to compile and replace Erlang native 
+modules located inside the 'otp-changes' folder and calling 'sudo make install' which goes through Erlang's makefiles 
+and reinstalls the it with the new BEAM files. Furthermore, one need to start the code migration manager by 
+executing ```application:start(remote_evaluation)```.
 
-
-
+Note that by replacing the indicated BEAM files you will be changing the native ```spawn``` semanics. Furthermore, 
+this work does not support native compiled code (using HiPE) due to (code) portability reasons. Code is extracted 
+from BEAM files that have been compiled with the 'debug_info' flag; code of modules whose BEAM files were compiled 
+differently will not be included in the portable function implementation, assuming that it will be present (and 
+dynamically linked) on the remote location.
