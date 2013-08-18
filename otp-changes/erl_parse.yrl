@@ -393,8 +393,10 @@ fun_expr -> 'fun' atom_or_var ':' atom_or_var '/' integer_or_var :
 	{'fun',?line('$1'),{function,'$2','$4','$6'}}.
 fun_expr -> 'fun' fun_clauses 'end' :
 	build_fun(?line('$1'), '$2').
+fun_expr -> 'pfun' atom_or_var ':' atom_or_var '/' integer_or_var :
+	build_portable_fun(?line('$1'),{'fun',?line('$1'),{function,'$2','$4','$6'}},external).
 fun_expr -> 'pfun' fun_clauses 'end' :
-	build_portable_fun(?line('$1'), '$2').
+	build_portable_fun(?line('$1'), '$2',local).
 	
 atom_or_var -> atom : '$1'.
 atom_or_var -> var : '$1'.
@@ -805,14 +807,16 @@ build_rule(Cs) ->
 build_fun(Line, Cs) ->
     Arity = length(element(4, hd(Cs))),
     {'fun',Line,{clauses,check_clauses(Cs, 'fun', Arity)}}.
-    
-build_portable_fun(Line, Cs) ->
+
+build_portable_fun(Line,A, external) ->
+    {call,Line,{remote,Line,{atom,Line,closure_rep},{atom,Line,construct_full_fun_rep}},[A,c(Line, [])]};    
+build_portable_fun(Line, Cs, local) ->
 	Arity = length(element(4, hd(Cs))),
 	FunAST = [{'fun',Line,{clauses,check_clauses(Cs, 'fun', Arity)}}],
 	FreeVarsAttr = free_vars(erl_lint:exprs(FunAST, erl_eval:new_bindings())),
 	FunName = {call,Line,{remote,Line,{atom,Line,erlang},{atom,Line,fun_info}},[build_fun(Line,Cs),{atom,Line,name}]},
-	{call,Line,{remote,Line,{atom,Line,closure_rep},{atom,Line,construct_full_fun_rep}},[{atom,Line,get(module)},FunName,{atom,Line,Arity},{atom,Line,FunAST},c(Line, FreeVarsAttr)]}.%[{atom,Line,EntireFun},{atom,Line,FreeVars}]}.	
-
+	{call,Line,{remote,Line,{atom,Line,closure_rep},{atom,Line,construct_full_fun_rep}},[{atom,Line,get(module)},FunName,{atom,Line,Arity},{atom,Line,FunAST},c(Line, FreeVarsAttr)]}.%[{atom,Line,EntireFun},{atom,Line,FreeVars}]}.
+	
 free_vars({ok,_}) -> [];
 free_vars({error,_A,_B}) ->
 	lists:flatten(loop(_A,[])).
