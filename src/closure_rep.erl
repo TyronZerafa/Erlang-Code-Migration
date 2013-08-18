@@ -58,17 +58,16 @@ get_fun_name(Name,local) ->
 %% Local Fun
 construct_fun_closure(Mod,Name,FunArity,Abst,Bindings,local)->
 	{FunName,Arity,Rel} = split_name(Name),
-	{'fun',_L,{clauses,Clauses}} = 
-		extract_fun([construct_closure(Mod,FunName,Arity,Abst)],Rel),
+	{'fun',_L,{clauses,Clauses}} =	extract_fun([construct_closure(Mod,FunName,Arity,Abst,Bindings)],Rel),
 	{function,_L,get_fun_name(Name,local),FunArity,get_clauses(Bindings,Clauses)};
 
 %% External Fun
-construct_fun_closure(Mod,Name,Arity,Abst,[],external)->	
-	construct_closure(Mod,Name,Arity,Abst).
+construct_fun_closure(Mod,Name,Arity,Abst,Bindings,external)->	
+	construct_closure(Mod,Name,Arity,Abst,Bindings).
 
 % Constructs the representation of a function
-construct_closure(M,F,A,Abst) ->
-	extract_function(parse_transform(Abst,{get_known_funs(M,Abst),node(),M}),F,A).
+construct_closure(M,F,A,Abst,Bindings) ->
+	extract_function(parse_transform(Abst,{get_known_funs(M,Abst),node(),M,Bindings}),F,A).
 	
 %------------------------------------------------------------
 % Abstract Syntax Tree operations
@@ -115,7 +114,8 @@ extract_function(AC,Fun,Arity) ->
 %% Retrieves an anonymous fun
 extract_fun(Clauses,Rel) ->
     Funs = pick_funs(Clauses),
-    nth(Rel, Funs).
+    %% *2 is required since we are passing two fun def
+    nth(Rel*2, Funs).
  
 tranverse_fun({'fun',_,{clauses,C}} = Fun) -> tranverse_fun(C) ++ [Fun];
 tranverse_fun(T) when erlang:is_tuple(T) -> tranverse_fun(tuple_to_list(T));
@@ -143,7 +143,11 @@ get_b(Bindings) ->
 	
 get_b([],NewVars) -> NewVars;
 get_b([{Var,Value}|T],NewVars)->
-	get_b(T,[{match,1,{var,1,Var},{type_of(Value),1,Value}}|NewVars]).
+	case type_of(Value) of
+		function -> 
+			get_b(T,NewVars);
+		_Type -> get_b(T,[{match,1,{var,1,Var},{_Type,1,Value}}|NewVars])
+	end.
 
 %% Constructs a list of function clauses
 get_clauses(Bindings,Clauses)->
@@ -154,7 +158,7 @@ get_clauses(Bindings,[{clause,_L,Param,Guards,Body}|T],Result) ->
 	get_clauses(Bindings,T,lists:merge(Result,[{clause,_L,Param,Guards,lists:append(get_b(Bindings),Body)}])).
 
 %% Loops through all Nodes
-%% Options = {Imports,Node,_Module,Dep}
+%% Options = {Imports,Node,_Module,Dep,Bindings}
 parse_transform(AST, Options) ->
     flatten([node_parse(Node, Options) || Node <- AST]).
 
@@ -172,10 +176,10 @@ node_parse(Node, _Options) ->
 	Node.
 
 %% Parse transform node calls
-node_parse_call({remote,_,{atom,_,Mod},{atom,_,Fun}},Param,{_Imports,Location,_Module}) ->
+node_parse_call({remote,_,{atom,_,Mod},{atom,_,Fun}},Param,{_Imports,Location,_Module,_Bindings}) ->
 	substitute_call(Location,Mod,Fun,Param);
 	
-node_parse_call({atom,_L2,Fun},Param,{Imports,Location,_Module}) ->
+node_parse_call({atom,_L2,Fun},Param,{Imports,Location,_Module,_Bindings}) ->
 	case get_module(Imports,{Fun,length(Param)}) of 
 		[] -> 
 			{call,1,{atom,_L2,Fun},Param};
@@ -183,11 +187,20 @@ node_parse_call({atom,_L2,Fun},Param,{Imports,Location,_Module}) ->
 			substitute_call(Location,_Else,Fun,Param)
 		end;
 		
-node_parse_call({remote,_L2,{var,_L3,VarMod},{var,_L4,VarFun}},Param,{_Imports,Location,_Module}) ->
-	substitute_call(Location,{var,_L3,VarMod},{var,_L4,VarFun},Param);
+node_parse_call({remote,_L2,{var,_L3,VarMod},{var,_L4,VarFun}},Param,_Options) ->
+	%% Unknown call must be retrieved lazily
+	node_parse_lazy_call({call,_L2,{remote,_L2,{var,_L3,VarMod},{var,_L4,VarFun}},Param});
 
-node_parse_call({var,_L,Var},Param,{_Imports,_Location,_Module}) ->
-	{call,1,{var,_L,Var},Param};
+node_parse_call({var,_L,Var},Param,{_Imports,_Location,_Module,Bindings}) ->
+	PFun = get_v(Var,Bindings),
+	case PFun of 
+		[] -> 
+			{call,1,{var,_L,Var},Param};
+		_Else ->
+			{module,Mod} = erlang:portable_fun_info(PFun,module),
+			{name,Name} = erlang:portable_fun_info(PFun,name),
+			{call,1,{remote,_L,{atom,_L,Mod},{atom,_L,Name}},Param}
+	end;
 	
 node_parse_call(Else,_Param,{_Imports,_Location,_Module}) ->
 	io:format("In node_parse_call encountered ~p ~n",[Else]),
@@ -235,11 +248,6 @@ add_dir(code_analysis_server,[Dir|T]) ->
 	add_dir(code_analysis_server,T);
 add_dir(code_analysis_server,Dir) ->
 	xref:add_directory(code_analysis_server,Dir).
-	
-add_directories(code_analysis_server,[]) -> {ok};
-add_directories(code_analysis_server,[{directories,Dir}|T]) ->
-	add_dir(code_analysis_server,Dir),
-	add_directories(code_analysis_server,T).
 
 get_all_dependencies() ->
 	xref:start(code_analysis_server),
@@ -316,6 +324,8 @@ fun_dependency(_,_,Acc)-> Acc.
 
 call_dependency({call,_,{remote,_,{atom,_,Mod},{atom,_,Fun}},Param},_,Acc) -> Acc++[{Mod,Fun,length(Param)}];
 call_dependency({call,_,{atom,_L2,Fun},Param},KnownFun,Acc) -> Acc++[{get_module(KnownFun,{Fun,length(Param)}),Fun,length(Param)}];
+call_dependency({call,_,{var,_,Var},_Param},_KnownFun,Acc) -> 
+	Acc ++ [{var,Var}];
 call_dependency({call,_,A,_Param},_KnownFun,Acc) -> io:format("Encountered Call ~p ~n",[A]), Acc.
 
 filter_dependencies(Calls,Dep) -> 
@@ -377,19 +387,52 @@ list_contain_element([Fun|_T],Fun) -> true;
 list_contain_element([_A|T],Fun) -> list_contain_element(T,Fun).
 
 get_full_impl(_DepTree,[],_Type,_Bindings,_Processed) -> ok;
-get_full_impl(DepTree,[Root={M,F,A}|T],Type,Bindings,Processed) ->
+get_full_impl(DepTree,[Root|T],Type,Bindings,Processed) ->
 	ProcessedFlag = list_contain_element(Processed,Root),
 	case ProcessedFlag of
 		false ->
-			Dep = digraph:out_neighbours(DepTree,Root),
-			FunCode = [{attribute,1,module,Mod},{attribute,1,export,[{FunName,Arity}]},_FunCode,_] = get_fun_impl(Root,Type,Bindings),
-			substitute_label(DepTree,{M,F,A},{Mod,FunName,Arity},FunCode),
-			get_full_impl(DepTree,Dep,external,[],Processed ++ [Root] ++ [{Mod,FunName,Arity}]),
-			get_full_impl(DepTree,T,Type,Bindings,Processed ++ [Root] ++ [{Mod,FunName,Arity}] ++ Dep);
+			case Root of
+			 	{M,F,A} ->
+			 		%% Code is missing for named functions, must be constructed and added to DepTree
+					Dep = digraph:out_neighbours(DepTree,Root),
+					FunCode = [{attribute,1,module,Mod},{attribute,1,export,[{FunName,Arity}]},_FunCode,_] = get_fun_impl(Root,Type,Bindings),
+					substitute_label(DepTree,{M,F,A},{Mod,FunName,Arity},FunCode),
+					get_full_impl(DepTree,Dep,external,Bindings,Processed ++ [Root] ++ [{Mod,FunName,Arity}]),
+					get_full_impl(DepTree,T,Type,Bindings,Processed ++ [Root] ++ [{Mod,FunName,Arity}] ++ Dep);
+				{var,Var} ->
+					%% Portable Fun already contain code, just add it and all of its dependencies
+					PFun = get_v(Var,Bindings),
+					{module,Mod} = erlang:portable_fun_info(PFun,module),
+					{name,Name} = erlang:portable_fun_info(PFun,name),
+					{arity,Arity} = erlang:portable_fun_info(PFun,arity),
+					{code,Code} = erlang:portable_fun_info(PFun,code),
+					substitute_label(DepTree,Root,{Mod,Name,Arity},Code),
+					{calls,Calls} = erlang:portable_fun_info(PFun,calls),
+					ProcessedDep = add_pfun_dep(PFun,{Mod,Name,Arity},DepTree,Calls,Processed),
+					get_full_impl(DepTree,T,Type,Bindings,Processed ++ [Root] ++ ProcessedDep)
+			end;		
 		true ->
 			get_full_impl(DepTree,T,Type,Bindings,Processed)
 	end.
 
+get_v(_,[]) -> [];
+get_v(Var,[{Var,Value}|_T]) -> Value;
+get_v(Var,[_|T]) -> get_v(Var,T).
+	
+add_pfun_dep(_,_,_,[],Acc) -> Acc;
+add_pfun_dep(PFun,Root,DepTree,[H|T],Acc) ->
+	ProcessedFlag = list_contain_element(Acc,Root),
+	case ProcessedFlag of
+		false ->
+			{dependency_code,HCode} = erlang:portable_fun_info(PFun,{dependency_code,H}),
+			{dependency_dep,HDep} = erlang:portable_fun_info(PFun,{dependency_dep,H}),
+			digraph:add_vertex(DepTree,H,HCode),
+			digraph:add_edge(DepTree,Root,H),
+			add_pfun_dep(PFun,H,DepTree,HDep,add_pfun_dep(PFun,Root,DepTree,T,Acc++[H]));
+		true ->
+			add_pfun_dep(PFun,H,DepTree,T,Acc)
+	end.
+	
 substitute_label(D,OldVertex,NewVertex,NewLabel) ->
 	digraph:add_vertex(D,NewVertex,NewLabel),
 	OutEdges = digraph:out_neighbours(D,OldVertex),
@@ -441,10 +484,10 @@ node_parse_lazy(Node) when is_tuple(Node) ->
 
 node_parse_lazy(Node) -> 
 	Node.
-
+	
 node_parse_lazy_call({call,_,{remote,_,{atom,_,Mod},{atom,_,Fun}},Param}) ->
 	case mod_belong_to_erlang_lib({Mod, Fun, length(Param)}) of		
-		false -> {call,1,{remote,1,{atom,1,mcode_cb},{atom,1,load_execute_fun}},[{atom,1,Mod},{atom,1,Fun},{atom,1,Param}]};
+		false -> {call,1,{remote,1,{atom,1,mcode_cb},{atom,1,load_execute_fun}},[{atom,1,Mod},{atom,1,Fun},c(1,Param)]};
 		true -> {call,1,{remote,1,{atom,1,Mod},{atom,1,Fun}},Param}
 	end;
 	
@@ -465,3 +508,6 @@ node_parse_lazy_call({call,_,{atom,_,Fun},Param}) ->
 node_parse_lazy_call({call,_,Else,Param}) ->
 	io:format("In node_parse_call encountered ~p ~n",[Else]),
 	{call,1,Else,Param}.
+
+c(Line,[]) -> {nil,Line};
+c(Line,[H|T]) -> {cons,Line,H,c(Line,T)}.

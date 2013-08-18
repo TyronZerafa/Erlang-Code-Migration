@@ -34,8 +34,8 @@ load_execute_fun(M,F,Args) ->
 	case Arity of
 		0 -> 
 			M:F();
-		_Else -> 
-			M:F(Args)
+		_Else ->
+			erlang:apply(M,F,Args)
 	end.
 	
 %------------------------------------------------------------
@@ -70,7 +70,7 @@ reap_and_load_portable_function(Fun) ->
 	
 reap_and_load_portable_function([],_EvalMode) -> [];
 reap_and_load_portable_function([Fun = {M,_F,_A}|T], EvalMode) ->
-
+	
 	Loaded = code:is_loaded(M),
 	
 	if  
@@ -86,7 +86,8 @@ reap_and_load_portable_function([Fun = {M,_F,_A}|T], EvalMode) ->
 					[Dep] = reap_dependencies(Fun),
 					reap_and_load_portable_function(Dep,EvalMode);
 				EvalMode == lazy ->
-					io:format("Loading Code lazily")
+					""
+					%io:format("Loading Code lazily")
 			end,
 			
 			reap_and_load_portable_function(T,EvalMode)

@@ -35,6 +35,7 @@
 init([]) -> 
 	process_flag(trap_exit, true),
 	Rules = pf_rules_parser:compile_rules_from_file("./policy_file.conf"),
+	io:format("~p ~n",[Rules]),
 	{ok, #state{rules = Rules, running_tasks = dict:new()}}.
 	
 start_link() ->
