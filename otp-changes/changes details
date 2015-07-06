@@ -1,12 +1,12 @@
-erl_scan.erl file location: 	/home/tyron/Documents/otp_src_R16B01/lib/stdlib/src
-beam location:					/home/tyron/Documents/otp_src_R16B01/lib/stdlib/ebin
-								/home/tyron/Documents/otp_src_R16B01/bootstrap/lib/stdlib/ebin
+erl_scan.erl file location: 	.../otp_src_R16B01/lib/stdlib/src
+beam location:			.../otp_src_R16B01/lib/stdlib/ebin
+				..../otp_src_R16B01/bootstrap/lib/stdlib/ebin
 								
-erl_parse.yrl file location: 	/home/tyron/Documents/otp_src_R16B01/lib/stdlib/src
-erl file generation: 			yecc:yecc("erl_parse.yrl","erl_parse.erl").
-erl_parse.erl file location: 	/home/tyron/Documents/otp_src_R16B01/lib/stdlib/src
-beam file location:				/home/tyron/Documents/otp_src_R16B01/lib/stdlib/ebin
-								/home/tyron/Documents/otp_src_R16B01/bootstrap/lib/stdlib/ebin
+erl_parse.yrl file location: 	.../otp_src_R16B01/lib/stdlib/src
+erl file generation: 		yecc:yecc("erl_parse.yrl","erl_parse.erl").
+erl_parse.erl file location: 	.../otp_src_R16B01/lib/stdlib/src
+beam file location:		.../otp_src_R16B01/lib/stdlib/ebin
+				.../otp_src_R16B01/bootstrap/lib/stdlib/ebin
 								
-erlang.erl file location:		/home/tyron/Documents/otp_src_R16B01/erts/preloaded/src
-beam file location:				/home/tyron/Documents/otp_src_R16B01/erts/preloaded/ebin
+erlang.erl file location:	.../otp_src_R16B01/erts/preloaded/src
+beam file location:		.../otp_src_R16B01/erts/preloaded/ebin
